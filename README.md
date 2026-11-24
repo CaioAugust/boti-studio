@@ -6,7 +6,7 @@ Converse por texto e voz com um avatar 3D. [Abra a demonstração no GitHub Page
 
 - **API.** Escolha OpenAI ou Anthropic (Claude), informe sua chave e ajuste o identificador do modelo, se necessário. A chave é necessária para conversar por texto ou voz. A expressão do avatar acompanha o conteúdo da conversa.
 - **Chamada.** Clique em **Iniciar chamada**, permita o acesso ao microfone e fale normalmente. O Boti responde em voz alta e volta a escutar. Clique em **Encerrar chamada** para desligar. No chat por texto, use **Ouvir** ou marque **Ler respostas em voz alta**.
-- **Voz natural.** A OpenAI gera as falas do Boti com o modelo `gpt-audio-1.5` e a voz Coral, com entonação que acompanha a expressão. Se o chat usa OpenAI, a mesma chave serve para o áudio. Se você usa Claude, informe uma chave OpenAI opcional em **Configurar API** para gerar a voz. A geração de áudio usa créditos da OpenAI.
+- **Voz Faber.** A mesma voz em português brasileiro do Co Host roda no próprio navegador pelo Piper e ONNX Runtime. O modelo é carregado no primeiro uso de voz. Funciona com a chave de chat que você já usa, tanto na OpenAI quanto no Claude.
 - **Avatar.** O avatar reage automaticamente e mantém a expressão da resposta durante a leitura em voz alta. Você pode alternar entre pelúcia e superfície lisa. O renderizador usa WebGL2 para a pelúcia e exibe a superfície lisa em dispositivos sem suporte.
 
 ## Rodar localmente
@@ -22,11 +22,13 @@ Para conferir a versão que vai para o GitHub Pages, rode `npm run build` e `npm
 
 ## Chaves, dados e compatibilidade
 
-O protótipo é estático e não usa banco de dados. As chaves e o histórico ficam na memória da aba e são descartados ao recarregar ou fechar a página. O navegador envia a chave e o contexto recente da conversa diretamente à API escolhida. As chamadas estão sujeitas a cobrança, limites e permissões do provedor. Use uma chave dedicada a testes com as menores permissões possíveis. Para produção, proteja as chaves em um backend, conforme as [orientações da OpenAI](https://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety).
+O protótipo é estático e não usa banco de dados. A chave e o histórico ficam na memória da aba e são descartados ao recarregar ou fechar a página. O navegador envia a chave e o contexto recente da conversa diretamente à API escolhida. As chamadas estão sujeitas a cobrança, limites e permissões do provedor. Use uma chave dedicada a testes com as menores permissões possíveis. Para produção, proteja as chaves em um backend, conforme as [orientações da OpenAI](https://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety).
 
-A chamada usa a Web Speech API em português do Brasil. O navegador reconhece a fala e envia o texto reconhecido para a mesma conversa usada pelo chat. Só o texto vai para a API de IA. Quando a voz natural está ativa, somente o texto das respostas reproduzidas é enviado à OpenAI para gerar o áudio. O site usa a voz do navegador quando a geração fica indisponível ou quando o Claude está configurado sem uma chave de voz. Nesse caso, o timbre depende das vozes disponíveis no dispositivo. O serviço de reconhecimento do navegador pode processar o áudio remotamente. A interface por texto funciona mesmo sem permissão de microfone.
+A chamada usa a Web Speech API em português do Brasil. O navegador reconhece a fala e envia o texto reconhecido para a mesma conversa usada pelo chat. Só o texto vai para a API de IA. O Piper gera o áudio localmente. O modelo Faber tem cerca de 63 MB e é baixado do Hugging Face na primeira síntese da aba, com verificação de integridade. O site usa a síntese do navegador quando o Piper fica indisponível. O serviço de reconhecimento do navegador pode processar o áudio remotamente. A interface por texto funciona mesmo sem permissão de microfone.
 
 ## Créditos
 
 - [Open Bot Avatar](https://github.com/DominikScholz/open-bot-avatar), de Dominik Scholz, sob [licença MIT](public/licenses/open-bot-avatar.txt).
 - Space Grotesk, distribuída por Fontsource, sob [SIL Open Font License](public/licenses/space-grotesk.txt).
+- [Faber](https://huggingface.co/rhasspy/piper-voices/blob/v1.0.0/pt/pt_BR/faber/medium/MODEL_CARD), da coleção Piper Voices (MIT). O Boti usa a versão original, com os mesmos parâmetros do Co Host (velocidade 1.0, expressividade 1.3).
+- [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) (MIT) e [Piper Wasm](https://github.com/diffusionstudio/piper-wasm#readme), com [Piper Phonemize](https://github.com/wide-video/piper-phonemize) e [eSpeak NG](https://github.com/rhasspy/espeak-ng). [Código-fonte e avisos de licença](public/licenses/piper-wasm-sources.txt).

@@ -1,10 +1,9 @@
-import { generateSpeech } from './providers.js';
-
 const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
 const synth = window.speechSynthesis;
 const Utterance = window.SpeechSynthesisUtterance;
 const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
 const hasBrowserVoice = Boolean(synth && Utterance);
+const supportsLocalVoice = Boolean(AudioContextClass && window.Worker && window.WebAssembly);
 
 const recognitionErrors = {
   'not-allowed': 'Permita o acesso ao microfone no navegador para iniciar a chamada.',
@@ -14,24 +13,22 @@ const recognitionErrors = {
 };
 
 const delivery = {
-  neutral: { pitch: 1.04, rate: 0.97, style: 'Use uma voz próxima, calorosa e tranquila, com um sorriso discreto.' },
-  happy: { pitch: 1.09, rate: 1.03, style: 'Deixe transparecer alegria espontânea, com energia leve e variação de melodia.' },
-  curious: { pitch: 1.06, rate: 0.97, style: 'Fale com curiosidade genuína, fazendo breves pausas para destacar as descobertas.' },
-  surprised: { pitch: 1.1, rate: 1.02, style: 'Deixe a surpresa aparecer no começo, depois volte ao ritmo natural.' },
-  empathetic: { pitch: 1.01, rate: 0.93, style: 'Use um tom acolhedor e suave, com pausas que deixem a pessoa respirar.' },
+  neutral: { pitch: 1.04, rate: 0.97 },
+  happy: { pitch: 1.09, rate: 1.03 },
+  curious: { pitch: 1.06, rate: 0.97 },
+  surprised: { pitch: 1.1, rate: 1.02 },
+  empathetic: { pitch: 1.01, rate: 0.93 },
 };
 
 export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError, onFallback }) {
   let recognition = null;
   let active = null;
   let audioContext = null;
+  let piperWorker = null;
+  let nextId = 0;
 
-  function canSpeak(key) {
-    return hasBrowserVoice || Boolean(key && AudioContextClass);
-  }
-
-  function preparePlayback(key) {
-    if (!key || !AudioContextClass) return;
+  function preparePlayback() {
+    if (!supportsLocalVoice) return;
     try {
       audioContext ??= new AudioContextClass();
       if (audioContext.state !== 'running') void audioContext.resume().catch(() => {});
@@ -51,14 +48,13 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError,
     if (!active) return;
     const playback = active;
     active = null;
-    playback.controller.abort();
     playback.stop?.();
     onSpeak(false, playback.button);
   }
 
   function speakWithBrowser(playback, text, emotion, { pitch, rate }) {
     if (!hasBrowserVoice) {
-      finish(playback, 'Não foi possível reproduzir a voz. Confira o acesso à API de áudio da OpenAI.');
+      finish(playback, 'Não foi possível reproduzir a voz Faber neste navegador.');
       return;
     }
 
@@ -82,53 +78,112 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError,
     synth.speak(utterance);
   }
 
-  async function speakWithOpenAI(playback, text, emotion, preset, key) {
+  function getPiperWorker() {
+    if (piperWorker) return piperWorker;
+    const worker = new Worker(new URL('./piper.worker.js', import.meta.url), { type: 'module' });
+    worker.onmessage = ({ data }) => {
+      if (active?.id === data.id) active.receive?.(data);
+    };
+    worker.onerror = () => {
+      if (piperWorker !== worker) return;
+      worker.terminate();
+      piperWorker = null;
+      active?.fallback?.();
+    };
+    return piperWorker = worker;
+  }
+
+  function speakWithPiper(playback, text, emotion, preset) {
+    let worker;
+    let timer;
+    let nextStart = 0;
+    let started = false;
+    let done = false;
+    const sources = new Set();
+
+    playback.stop = () => {
+      clearTimeout(timer);
+      if (worker && worker === piperWorker) worker.postMessage({ id: playback.id });
+      for (const source of sources) {
+        source.onended = null;
+        source.stop();
+        source.disconnect();
+      }
+      sources.clear();
+      playback.receive = playback.fallback = null;
+    };
+
+    playback.fallback = () => {
+      if (active !== playback) return;
+      playback.stop();
+      if (started || !hasBrowserVoice) {
+        finish(playback, 'A voz Faber foi interrompida. Tente ouvir a resposta novamente.');
+        return;
+      }
+      onFallback();
+      speakWithBrowser(playback, text, emotion, preset);
+    };
+
+    const finishWhenDone = () => {
+      if (done && !sources.size) finish(playback);
+    };
+
+    playback.receive = ({ samples, sampleRate, error, done: complete }) => {
+      clearTimeout(timer);
+      if (error || (complete && !started)) {
+        playback.fallback();
+        return;
+      }
+      if (complete) {
+        done = true;
+        finishWhenDone();
+        return;
+      }
+      try {
+        if (audioContext?.state !== 'running') throw new Error('Áudio suspenso.');
+        const buffer = audioContext.createBuffer(1, samples.length, sampleRate);
+        buffer.copyToChannel(samples, 0);
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContext.destination);
+        source.onended = () => {
+          source.disconnect();
+          sources.delete(source);
+          finishWhenDone();
+        };
+        const start = Math.max(nextStart, audioContext.currentTime);
+        source.start(start);
+        sources.add(source);
+        nextStart = start + buffer.duration;
+        if (!started) onSpeak(true, playback.button, emotion, 'speaking');
+        started = true;
+        timer = setTimeout(playback.fallback, 25000);
+      } catch {
+        playback.fallback();
+      }
+    };
+
     onSpeak(true, playback.button, emotion, 'preparing');
     try {
-      const signal = AbortSignal.any([playback.controller.signal, AbortSignal.timeout(20000)]);
-      if (!audioContext) throw new Error('Web Audio indisponível.');
-      if (audioContext.state !== 'running') {
-        await Promise.race([
-          audioContext.resume(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Áudio suspenso.')), 1500)),
-        ]);
-      }
-      if (active !== playback) return;
-
-      const bytes = await generateSpeech(text, preset.style, key, signal);
-      if (active !== playback) return;
-      const buffer = await audioContext.decodeAudioData(bytes);
-      if (active !== playback) return;
-      if (audioContext.state !== 'running') throw new Error('Reprodução de áudio suspensa.');
-
-      const source = audioContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioContext.destination);
-      source.onended = () => {
-        source.disconnect();
-        finish(playback);
-      };
-      source.start();
-      playback.stop = () => source.stop();
-      onSpeak(true, playback.button, emotion, 'speaking');
+      worker = getPiperWorker();
+      timer = setTimeout(playback.fallback, 120000);
+      worker.postMessage({ id: playback.id, text });
     } catch {
-      if (active !== playback) return;
-      if (hasBrowserVoice) onFallback();
-      speakWithBrowser(playback, text, emotion, preset);
+      playback.fallback();
     }
   }
 
-  function speak(text, button, emotion, key) {
-    if (!canSpeak(key)) return;
+  function speak(text, button, emotion, { browserOnly = false } = {}) {
+    if (!hasBrowserVoice && (browserOnly || !supportsLocalVoice)) return;
     const wasPlaying = active && active.button === button;
     stopSpeaking();
     if (wasPlaying) return;
 
-    const playback = { button, controller: new AbortController() };
+    const playback = { id: ++nextId, button };
     const preset = delivery[emotion] ?? delivery.neutral;
     active = playback;
-    if (key && AudioContextClass) {
-      void speakWithOpenAI(playback, text, emotion, preset, key);
+    if (!browserOnly && supportsLocalVoice) {
+      speakWithPiper(playback, text, emotion, preset);
     } else {
       speakWithBrowser(playback, text, emotion, preset);
     }
@@ -180,8 +235,8 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError,
 
   return {
     canListen: Boolean(Recognition),
-    canSpeak,
-    supportsGeneratedVoice: Boolean(AudioContextClass),
+    canSpeak: hasBrowserVoice || supportsLocalVoice,
+    supportsLocalVoice,
     preparePlayback,
     startListening,
     stopListening,
