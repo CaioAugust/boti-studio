@@ -1,0 +1,21 @@
+Piper Wasm @diffusionstudio/piper-wasm 1.0.0
+Build files and instructions:
+https://github.com/diffusionstudio/piper-wasm
+https://www.npmjs.com/package/@diffusionstudio/piper-wasm/v/1.0.0
+
+Piper Phonemize source for the WebAssembly build:
+https://github.com/wide-video/piper-phonemize/tree/wide.video
+License: piper-phonemize.txt
+
+eSpeak NG source used by Piper Phonemize:
+https://github.com/rhasspy/espeak-ng
+License: espeak-ng.txt
+
+ONNX Runtime Web 1.31.1
+https://github.com/microsoft/onnxruntime
+https://github.com/microsoft/onnxruntime/blob/main/ThirdPartyNotices.txt
+License: onnxruntime.txt
+
+Faber voice model
+https://huggingface.co/rhasspy/piper-voices/tree/375a0fe641dea077c2a47b4e9a056d6da521eed3/pt/pt_BR/faber/medium
+Model card: faber-model-card.txt

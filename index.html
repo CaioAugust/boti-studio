@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <meta name="description" content="Converse por texto e voz com Boti, um avatar 3D expressivo.">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.openai.com https://api.anthropic.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.openai.com https://api.anthropic.com; object-src 'none'; base-uri 'none'; form-action 'none'">
     <link rel="icon" type="image/svg+xml" href="./boti.svg">
     <title>Boti Studio</title>
-    <script type="module" crossorigin src="./assets/index-CJXvAl6a.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DVFCe5rW.css">
+    <script type="module" crossorigin src="./assets/index-gxVWcl75.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-_E4pbh47.css">
   </head>
   <body>
     <header class="topbar">
@@ -76,7 +76,7 @@
               <span>Ler respostas em voz alta</span>
             </label>
           </div>
-          <p id="voice-disclosure" class="voice-disclosure" hidden>Voz gerada por IA (OpenAI)</p>
+          <p id="voice-disclosure" class="voice-disclosure" hidden>Voz Faber · síntese local</p>
         </div>
       </section>
     </main>
@@ -103,13 +103,6 @@
         <label for="api-key">Chave de API</label>
         <input type="password" id="api-key" required maxlength="500" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="key-help">
         <p id="key-help" class="hint">Use uma chave dedicada a testes. Ela fica na memória da aba e é enviada diretamente ao provedor quando você conversa.</p>
-        <p id="openai-voice-help" class="hint">A mesma chave gera a voz do Boti com a OpenAI. As respostas faladas usam créditos da API.</p>
-        <div id="voice-key-field" hidden>
-          <label for="voice-key">Chave OpenAI para a voz <span>(opcional)</span></label>
-          <input type="password" id="voice-key" maxlength="500" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="voice-key-help">
-          <p id="voice-key-help" class="hint">Para gerar a voz, a OpenAI recebe o texto das respostas lidas. A conversa continua no Claude.</p>
-          <button id="remove-voice-key" class="button outline" type="button" hidden>Remover chave de voz</button>
-        </div>
         <div class="dialog-actions">
           <button id="disconnect" class="button outline" type="button" hidden>Desconectar</button>
           <button class="button primary" type="submit">Conectar</button>
