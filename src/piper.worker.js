@@ -6,6 +6,7 @@ import runtimeWasm from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
 import faber from './faber.json';
 
 const modelUrl = 'https://huggingface.co/rhasspy/piper-voices/resolve/375a0fe641dea077c2a47b4e9a056d6da521eed3/pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx';
+const hostedModelUrl = new URL('../voice/faber-858555e3.onnx', self.location.href);
 const modelIntegrity = 'sha256-hYVV46BkIJxXCI/mvXDEw9xU0D6qAMRdXsr0OjP5Wqc=';
 const { sample_rate: sampleRate } = faber.audio;
 const ids = faber.phoneme_id_map;
@@ -19,20 +20,34 @@ let activeId;
 let queue = Promise.resolve();
 let phonemes = [];
 
+async function fetchVoiceModel() {
+  const options = {
+    integrity: modelIntegrity,
+    credentials: 'omit',
+    referrerPolicy: 'no-referrer',
+  };
+  if (!import.meta.env.DEV) {
+    try {
+      const response = await fetch(hostedModelUrl, options);
+      if (response.ok) return response;
+    } catch {
+      // Source-only builds can use the original model from Hugging Face.
+    }
+  }
+  const response = await fetch(modelUrl, options);
+  if (!response.ok) throw new Error('Não foi possível baixar a voz Faber.');
+  return response;
+}
+
 async function loadVoice() {
   const [response, phonemizer] = await Promise.all([
-    fetch(modelUrl, {
-      integrity: modelIntegrity,
-      credentials: 'omit',
-      referrerPolicy: 'no-referrer',
-    }),
+    fetchVoiceModel(),
     createPhonemizer({
       noExitRuntime: true,
       locateFile: (file) => file.endsWith('.data') ? phonemizerData : phonemizerWasm,
       print: (line) => { phonemes.push(JSON.parse(line).phonemes); },
     }),
   ]);
-  if (!response.ok) throw new Error('Não foi possível baixar a voz Faber.');
   const session = await InferenceSession.create(await response.arrayBuffer(), {
     executionProviders: ['wasm'],
   });
@@ -91,9 +106,16 @@ async function speak(id, text) {
   if (activeId === id) self.postMessage({ id, done: true });
 }
 
-self.onmessage = ({ data: { id, text } }) => {
-  activeId = text ? id : undefined;
-  if (!text) return;
+self.onmessage = ({ data: { id, text, warmup } }) => {
+  if (warmup) {
+    void getEngine().catch(() => {});
+    return;
+  }
+  if (!text) {
+    if (activeId === id) activeId = undefined;
+    return;
+  }
+  activeId = id;
   queue = queue.then(async () => {
     if (activeId === id) await speak(id, text);
   }).catch((error) => {

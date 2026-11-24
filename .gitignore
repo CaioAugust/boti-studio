@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env*
 .DS_Store
+
+/public/voice/faber-858555e3.onnx

@@ -5,6 +5,7 @@ import { mountAvatar } from 'open-bot-avatar/dom';
 import { setIcon } from './icons.js';
 import { askProvider, providers } from './providers.js';
 import { makeVoice } from './voice.js';
+import connectionAudio from './faber-connection.wav?url';
 
 const byId = (id) => document.getElementById(id);
 const avatarHost = byId('avatar');
@@ -150,9 +151,6 @@ const voice = makeVoice({
     renderAvatar();
     if (!active) resumeListening();
   },
-  onFallback() {
-    setNotice('A voz Faber ficou indisponível. Esta resposta usa a voz do navegador.');
-  },
   onError(text) {
     endCall();
     setNotice(text, true);
@@ -294,7 +292,7 @@ function updateConnection() {
   byId('connect-label').textContent = connection ? 'Configurar API' : 'Conectar API';
   autoSpeak.disabled = !voice.canSpeak;
   byId('voice-label').title = autoSpeak.disabled ? 'Leitura em voz alta indisponível neste navegador' : '';
-  voiceDisclosure.hidden = !connection || !voice.supportsLocalVoice;
+  voiceDisclosure.hidden = !connection || !voice.canSpeak;
   syncControls();
 }
 
@@ -394,11 +392,11 @@ callButton.addEventListener('click', () => {
   if (!connection) {
     openSettings();
     readingConnectionMessage = true;
-    voice.speak(connectionMessage, null, 'neutral', { browserOnly: true });
+    voice.playClip(connectionAudio);
     return;
   }
   if (!voice.canListen || !voice.canSpeak) {
-    setNotice('As chamadas precisam de reconhecimento de fala e reprodução de áudio. Tente no Chrome ou converse por texto.', true);
+    setNotice('As chamadas precisam de reconhecimento de fala e suporte à voz Faber. Tente no Chrome ou converse por texto.', true);
     return;
   }
   voice.preparePlayback();
@@ -410,8 +408,8 @@ callButton.addEventListener('click', () => {
   voice.startListening();
 });
 autoSpeak.addEventListener('change', () => {
-  if (autoSpeak.checked) voice.preparePlayback();
-  else if (!callActive) voice.stopSpeaking();
+  if (autoSpeak.checked && connection) voice.preparePlayback();
+  if (!autoSpeak.checked && !callActive) voice.stopSpeaking();
 });
 texture.addEventListener('change', () => avatar.update({ material: texture.value }));
 

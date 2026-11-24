@@ -18,13 +18,13 @@ npm ci
 npm run dev
 ```
 
-Para conferir a versão que vai para o GitHub Pages, rode `npm run build` e `npm run preview`. O GitHub Pages serve a raiz da branch `gh-pages`. Para atualizar o site, publique nela o conteúdo de `dist` e mantenha o arquivo `.nojekyll`.
+Para conferir a versão que vai para o GitHub Pages, rode `npm run build` e `npm run preview`. O GitHub Pages serve a raiz da branch `gh-pages`. Para atualizar o site, publique nela o conteúdo de `dist` e mantenha o arquivo `.nojekyll` e o modelo em `voice/faber-858555e3.onnx`. Para incluir o modelo na compilação, salve-o em `public/voice/faber-858555e3.onnx`. Ele pode ser obtido no [repositório original fixado](https://huggingface.co/rhasspy/piper-voices/resolve/375a0fe641dea077c2a47b4e9a056d6da521eed3/pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx).
 
 ## Chaves, dados e compatibilidade
 
 O protótipo é estático e não usa banco de dados. A chave e o histórico ficam na memória da aba e são descartados ao recarregar ou fechar a página. O navegador envia a chave e o contexto recente da conversa diretamente à API escolhida. As chamadas estão sujeitas a cobrança, limites e permissões do provedor. Use uma chave dedicada a testes com as menores permissões possíveis. Para produção, proteja as chaves em um backend, conforme as [orientações da OpenAI](https://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety).
 
-A chamada usa a Web Speech API em português do Brasil. O navegador reconhece a fala e envia o texto reconhecido para a mesma conversa usada pelo chat. Só o texto vai para a API de IA. O Piper gera o áudio localmente. O modelo Faber tem cerca de 63 MB e é baixado do Hugging Face na primeira síntese da aba, com verificação de integridade. O site usa a síntese do navegador quando o Piper fica indisponível. O serviço de reconhecimento do navegador pode processar o áudio remotamente. A interface por texto funciona mesmo sem permissão de microfone.
+A chamada usa a Web Speech API em português do Brasil. O navegador reconhece a fala e envia o texto reconhecido para a mesma conversa usada pelo chat. Só o texto vai para a API de IA. O Piper gera o áudio localmente. O modelo Faber tem cerca de 63 MB e é baixado no primeiro uso de voz, com verificação de integridade. O GitHub Pages serve o modelo junto com o site. Na ausência do arquivo local, builds de desenvolvimento podem baixar a mesma versão do Hugging Face. Se a Faber falhar, o site mostra o erro e mantém a resposta em texto. O serviço de reconhecimento do navegador pode processar o áudio remotamente. A interface por texto funciona mesmo sem permissão de microfone.
 
 ## Créditos
 

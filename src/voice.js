@@ -1,8 +1,5 @@
 const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-const synth = window.speechSynthesis;
-const Utterance = window.SpeechSynthesisUtterance;
 const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
-const hasBrowserVoice = Boolean(synth && Utterance);
 const supportsLocalVoice = Boolean(AudioContextClass && window.Worker && window.WebAssembly);
 
 const recognitionErrors = {
@@ -12,15 +9,7 @@ const recognitionErrors = {
   network: 'O serviço de reconhecimento de voz do navegador está indisponível.',
 };
 
-const delivery = {
-  neutral: { pitch: 1.04, rate: 0.97 },
-  happy: { pitch: 1.09, rate: 1.03 },
-  curious: { pitch: 1.06, rate: 0.97 },
-  surprised: { pitch: 1.1, rate: 1.02 },
-  empathetic: { pitch: 1.01, rate: 0.93 },
-};
-
-export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError, onFallback }) {
+export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError }) {
   let recognition = null;
   let active = null;
   let audioContext = null;
@@ -32,8 +21,9 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError,
     try {
       audioContext ??= new AudioContextClass();
       if (audioContext.state !== 'running') void audioContext.resume().catch(() => {});
+      if (!piperWorker) getPiperWorker().postMessage({ warmup: true });
     } catch {
-      // The browser synthesizer can still speak if Web Audio is unavailable.
+      // Playback reports initialization errors when a reply is ready to speak.
     }
   }
 
@@ -52,30 +42,16 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError,
     onSpeak(false, playback.button);
   }
 
-  function speakWithBrowser(playback, text, emotion, { pitch, rate }) {
-    if (!hasBrowserVoice) {
-      finish(playback, 'Não foi possível reproduzir a voz Faber neste navegador.');
-      return;
-    }
-
-    const utterance = new Utterance(text);
-    utterance.lang = 'pt-BR';
-    utterance.pitch = pitch;
-    utterance.rate = rate;
-
-    const voices = synth.getVoices();
-    const brazilian = voices.filter((voice) => voice.lang.toLowerCase() === 'pt-br');
-    utterance.voice = brazilian.find((voice) => /natural|neural|premium|enhanced|aprimorad/i.test(voice.name))
-      ?? brazilian.find((voice) => voice.default)
-      ?? brazilian[0]
-      ?? voices.find((voice) => voice.lang.toLowerCase().startsWith('pt'))
-      ?? null;
-
-    playback.stop = () => synth.cancel();
-    utterance.onend = () => finish(playback);
-    utterance.onerror = () => finish(playback, 'O navegador não conseguiu falar. Confira se há uma voz instalada no dispositivo.');
-    onSpeak(true, playback.button, emotion, 'speaking');
-    synth.speak(utterance);
+  function playClip(url) {
+    stopSpeaking();
+    const clip = new Audio(url);
+    const playback = { stop: () => clip.pause() };
+    active = playback;
+    clip.onplaying = () => {
+      if (active === playback) onSpeak(true, null, 'neutral', 'speaking');
+    };
+    clip.onended = () => finish(playback);
+    clip.play().catch(() => finish(playback));
   }
 
   function getPiperWorker() {
@@ -88,12 +64,12 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError,
       if (piperWorker !== worker) return;
       worker.terminate();
       piperWorker = null;
-      active?.fallback?.();
+      active?.fail?.('A voz Faber ficou indisponível. Recarregue a página e tente novamente.');
     };
     return piperWorker = worker;
   }
 
-  function speakWithPiper(playback, text, emotion, preset) {
+  function speakWithPiper(playback, text, emotion) {
     let worker;
     let timer;
     let nextStart = 0;
@@ -110,18 +86,13 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError,
         source.disconnect();
       }
       sources.clear();
-      playback.receive = playback.fallback = null;
+      playback.receive = playback.fail = null;
     };
 
-    playback.fallback = () => {
+    playback.fail = (message) => {
       if (active !== playback) return;
       playback.stop();
-      if (started || !hasBrowserVoice) {
-        finish(playback, 'A voz Faber foi interrompida. Tente ouvir a resposta novamente.');
-        return;
-      }
-      onFallback();
-      speakWithBrowser(playback, text, emotion, preset);
+      finish(playback, message);
     };
 
     const finishWhenDone = () => {
@@ -131,7 +102,7 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError,
     playback.receive = ({ samples, sampleRate, error, done: complete }) => {
       clearTimeout(timer);
       if (error || (complete && !started)) {
-        playback.fallback();
+        playback.fail('Não foi possível gerar a voz Faber. Tente ouvir a resposta novamente.');
         return;
       }
       if (complete) {
@@ -157,36 +128,31 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError,
         nextStart = start + buffer.duration;
         if (!started) onSpeak(true, playback.button, emotion, 'speaking');
         started = true;
-        timer = setTimeout(playback.fallback, 25000);
+        timer = setTimeout(() => playback.fail('A voz Faber foi interrompida. Tente ouvir a resposta novamente.'), 25000);
       } catch {
-        playback.fallback();
+        playback.fail('O navegador não conseguiu reproduzir a voz Faber. Tente ouvir a resposta novamente.');
       }
     };
 
     onSpeak(true, playback.button, emotion, 'preparing');
     try {
       worker = getPiperWorker();
-      timer = setTimeout(playback.fallback, 120000);
+      timer = setTimeout(() => playback.fail('A voz Faber demorou a carregar. Tente ouvir a resposta novamente.'), 120000);
       worker.postMessage({ id: playback.id, text });
     } catch {
-      playback.fallback();
+      playback.fail('Não foi possível iniciar a voz Faber neste navegador.');
     }
   }
 
-  function speak(text, button, emotion, { browserOnly = false } = {}) {
-    if (!hasBrowserVoice && (browserOnly || !supportsLocalVoice)) return;
+  function speak(text, button, emotion) {
+    if (!supportsLocalVoice) return;
     const wasPlaying = active && active.button === button;
     stopSpeaking();
     if (wasPlaying) return;
 
     const playback = { id: ++nextId, button };
-    const preset = delivery[emotion] ?? delivery.neutral;
     active = playback;
-    if (!browserOnly && supportsLocalVoice) {
-      speakWithPiper(playback, text, emotion, preset);
-    } else {
-      speakWithBrowser(playback, text, emotion, preset);
-    }
+    speakWithPiper(playback, text, emotion);
   }
 
   function stopListening() {
@@ -235,8 +201,8 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError,
 
   return {
     canListen: Boolean(Recognition),
-    canSpeak: hasBrowserVoice || supportsLocalVoice,
-    supportsLocalVoice,
+    canSpeak: supportsLocalVoice,
+    playClip,
     preparePlayback,
     startListening,
     stopListening,
