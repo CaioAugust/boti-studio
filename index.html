@@ -33,16 +33,6 @@
         </div>
 
         <div class="stage-controls">
-          <fieldset>
-            <legend>Expressão</legend>
-            <div class="expressions">
-              <button class="chip" type="button" data-emotion="neutral" aria-pressed="true">Neutro</button>
-              <button class="chip" type="button" data-emotion="happy" aria-pressed="false">Alegre</button>
-              <button class="chip" type="button" data-emotion="curious" aria-pressed="false">Curioso</button>
-              <button class="chip" type="button" data-emotion="surprised" aria-pressed="false">Surpreso</button>
-              <button class="chip" type="button" data-emotion="empathetic" aria-pressed="false">Solidário</button>
-            </div>
-          </fieldset>
           <label class="texture">
             <span data-icon="layers"></span>
             <span>Textura</span>
@@ -58,7 +48,7 @@
         <header class="panel-header chat-header">
           <div class="chat-title-line">
             <h2 id="chat-title">Conversa</h2>
-            <span id="provider-status" class="provider-status">Modo demo</span>
+            <span id="provider-status" class="provider-status">Aguardando chave</span>
           </div>
           <button id="clear-chat" class="button icon-button" type="button" title="Nova conversa" aria-label="Nova conversa" disabled><span data-icon="reset"></span></button>
         </header>
@@ -69,20 +59,20 @@
             <button class="chip" data-prompt="Me conte uma piada curta." type="button">Uma piada <span data-icon="arrow"></span></button>
           </div>
           <p id="notice" class="notice" role="status" hidden></p>
+          <p id="call-status" class="call-status" role="status" hidden></p>
           <form id="compose" class="compose">
             <textarea id="message" rows="1" maxlength="6000" aria-label="Sua mensagem" placeholder="Escreva uma mensagem…" required></textarea>
             <div class="compose-actions">
-              <button id="mic" class="button icon-button" type="button" aria-label="Ditar mensagem" title="Ditar mensagem" aria-pressed="false"><span data-icon="mic"></span></button>
               <button id="send" class="button send" type="submit" title="Enviar mensagem" aria-label="Enviar mensagem" disabled><span data-icon="send"></span></button>
             </div>
           </form>
           <div class="chat-footer">
+            <button id="voice-call" class="button outline call-button" type="button"><span data-icon="phone"></span><span>Iniciar chamada</span></button>
             <label class="voice-toggle" id="voice-label">
               <input type="checkbox" id="auto-speak">
               <span data-icon="volume"></span>
               <span>Ler respostas em voz alta</span>
             </label>
-            <span class="session-note">Histórico desta sessão</span>
           </div>
         </div>
       </section>
@@ -93,13 +83,13 @@
       <a href="https://github.com/CaioAugust/boti-studio" target="_blank" rel="noopener noreferrer"><span data-icon="github"></span> Código no GitHub</a>
     </footer>
 
-    <dialog id="settings" aria-labelledby="settings-title">
+    <dialog id="settings" aria-labelledby="settings-title" aria-describedby="settings-description">
       <form id="settings-form" autocomplete="off">
         <div class="dialog-header">
-          <h2 id="settings-title">Conectar API</h2>
+          <h2 id="settings-title">Conecte meu cérebro</h2>
           <button id="close-settings" class="button icon-button" type="button" aria-label="Fechar" title="Fechar"><span data-icon="close"></span></button>
         </div>
-        <p>Use sua própria chave para conversar com o provedor escolhido.</p>
+        <p id="settings-description">Antes de conversarmos, preciso de um cérebro. Sua chave de API me conecta à OpenAI ou à Anthropic para eu entender você e responder por texto ou voz.</p>
         <label for="provider">Provedor</label>
         <select id="provider">
           <option value="openai">OpenAI</option>
@@ -111,8 +101,8 @@
         <input type="password" id="api-key" required maxlength="500" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="key-help">
         <p id="key-help" class="hint">Use uma chave dedicada a testes. Ela fica na memória da aba e é enviada diretamente ao provedor quando você conversa.</p>
         <div class="dialog-actions">
-          <button id="disconnect" class="button outline" type="button" hidden>Voltar ao modo demo</button>
-          <button class="button primary" type="submit">Usar chave</button>
+          <button id="disconnect" class="button outline" type="button" hidden>Desconectar</button>
+          <button class="button primary" type="submit">Conectar</button>
         </div>
       </form>
     </dialog>

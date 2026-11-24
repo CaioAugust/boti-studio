@@ -3,24 +3,26 @@ import './style.css';
 import { validateAvatar } from 'open-bot-avatar';
 import { mountAvatar } from 'open-bot-avatar/dom';
 import { setIcon } from './icons.js';
-import { askProvider, demoReply, providers } from './providers.js';
+import { askProvider, providers } from './providers.js';
 import { makeVoice } from './voice.js';
 
 const byId = (id) => document.getElementById(id);
 const avatarHost = byId('avatar');
 const avatarIcon = document.querySelector('.brand img').src;
 const stateIndicator = byId('avatar-state');
-const emotionButtons = [...document.querySelectorAll('[data-emotion]')];
 const chat = byId('messages');
 const compose = byId('compose');
 const input = byId('message');
 const send = byId('send');
-const mic = byId('mic');
+const callButton = byId('voice-call');
+const callStatus = byId('call-status');
 const notice = byId('notice');
 const clearChat = byId('clear-chat');
 const suggestions = byId('suggestions');
 const autoSpeak = byId('auto-speak');
 const settings = byId('settings');
+const settingsDescription = byId('settings-description');
+const connectionMessage = settingsDescription.textContent;
 const providerInput = byId('provider');
 const modelInput = byId('model');
 const keyInput = byId('api-key');
@@ -51,33 +53,47 @@ const avatar = mountAvatar(avatarHost, {
 });
 
 const expressions = {
-  neutral: { state: 'idle', mood: 'neutral', lookAt: null, view: { yaw: 0, pitch: 0 } },
-  happy: { state: 'done', mood: 'happy', lookAt: null, view: { yaw: 0, pitch: 0 } },
-  curious: { state: 'thinking', mood: 'neutral', lookAt: { x: 0.7, y: -0.45 }, view: { yaw: 0.15, pitch: 0 } },
-  surprised: { state: 'blocked', mood: 'neutral', lookAt: { x: 0, y: -0.35 }, view: { yaw: 0, pitch: -0.15 } },
-  empathetic: { state: 'waiting', mood: 'neutral', lookAt: { x: -0.15, y: 0.35 }, view: { yaw: -0.06, pitch: 0.1 } },
+  neutral: { label: 'expressão neutra', state: 'idle', mood: 'neutral', lookAt: null, view: { yaw: 0, pitch: 0 } },
+  happy: { label: 'expressão alegre', state: 'done', mood: 'happy', lookAt: null, view: { yaw: 0, pitch: 0 } },
+  curious: { label: 'expressão curiosa', state: 'thinking', mood: 'neutral', lookAt: { x: 0.7, y: -0.45 }, view: { yaw: 0.15, pitch: 0 } },
+  surprised: { label: 'expressão surpresa', state: 'blocked', mood: 'neutral', lookAt: { x: 0, y: -0.35 }, view: { yaw: 0, pitch: -0.15 } },
+  empathetic: { label: 'expressão solidária', state: 'waiting', mood: 'neutral', lookAt: { x: -0.15, y: 0.35 }, view: { yaw: -0.06, pitch: 0.1 } },
 };
 const activities = {
   idle: { label: 'À espera' },
   listening: { label: 'Ouvindo', state: 'waiting' },
   thinking: { label: 'Pensando', state: 'thinking' },
-  speaking: { label: 'Falando', state: 'working' },
+  speaking: { label: 'Falando' },
   error: { label: 'Falha na resposta', state: 'blocked' },
 };
 
 let emotion = 'neutral';
+let spokenEmotion = null;
+let readingConnectionMessage = false;
 let activity = 'idle';
 let connection = null;
 let pending = null;
 let listening = false;
+let callActive = false;
+let listenTimer;
 let history = [];
 
 function renderAvatar() {
   const current = activities[activity];
-  avatar.update({ ...expressions[emotion], ...(current.state ? { state: current.state } : {}) });
+  const displayedEmotion = current.state ? 'neutral' : spokenEmotion ?? emotion;
+  const { label, ...pose } = expressions[displayedEmotion];
+  avatar.update({
+    ...pose,
+    state: current.state ?? (activity === 'speaking' && displayedEmotion === 'neutral' ? 'working' : pose.state),
+    label: 'Boti, avatar 3D, ' + (current.state ? current.label.toLowerCase() : label),
+  });
   stateIndicator.dataset.activity = activity;
   stateIndicator.lastElementChild.textContent = current.label;
-  for (const button of emotionButtons) button.setAttribute('aria-pressed', String(button.dataset.emotion === emotion));
+  callStatus.hidden = !callActive;
+  if (callActive) {
+    const status = activity === 'idle' ? 'Chamada em andamento' : 'Boti · ' + current.label.toLowerCase();
+    if (callStatus.textContent !== status) callStatus.textContent = status;
+  }
 }
 
 function setNotice(text = '', isError = false) {
@@ -88,39 +104,41 @@ function setNotice(text = '', isError = false) {
 
 function syncControls() {
   const hasText = Boolean(input.value.trim());
-  send.disabled = !hasText || Boolean(pending) || listening;
-  mic.disabled = !voice.canListen || Boolean(pending);
+  send.disabled = !hasText || Boolean(pending) || callActive;
+  callButton.disabled = Boolean(pending && !callActive);
   clearChat.disabled = !history.length && !pending;
-  suggestions.hidden = history.length > 0 || Boolean(pending);
+  suggestions.hidden = history.length > 0 || Boolean(pending) || callActive;
   input.style.height = 'auto';
   input.style.height = Math.min(118, Math.max(40, input.scrollHeight)) + 'px';
 }
 
-function setMicLabel(listening) {
-  const label = listening ? 'Parar de ditar' : 'Ditar mensagem';
-  mic.title = label;
-  mic.setAttribute('aria-label', label);
-  mic.setAttribute('aria-pressed', String(listening));
-  setIcon(mic.firstElementChild, listening ? 'stop' : 'mic');
+function updateCallButton() {
+  callButton.dataset.active = String(callActive);
+  setIcon(callButton.firstElementChild, callActive ? 'hangup' : 'phone');
+  callButton.lastElementChild.textContent = callActive ? 'Encerrar chamada' : 'Iniciar chamada';
+  for (const button of chat.querySelectorAll('.reply-audio')) button.disabled = callActive;
+}
+
+function resumeListening() {
+  clearTimeout(listenTimer);
+  if (!callActive) return;
+  listenTimer = setTimeout(() => {
+    if (callActive && !pending && !listening && !spokenEmotion) voice.startListening();
+  }, 250);
 }
 
 const voice = makeVoice({
   onListen(active) {
     listening = active;
-    setMicLabel(active);
     activity = active ? 'listening' : 'idle';
     renderAvatar();
-    syncControls();
-    if (active) setNotice('Fale agora. Revise o texto antes de enviar.');
-    else if (notice.dataset.error !== 'true') setNotice();
   },
   onTranscript(text) {
-    const prefix = input.value.trimEnd();
-    input.value = (prefix ? prefix + ' ' + text : text).slice(0, input.maxLength);
-    input.focus();
-    syncControls();
+    void submitMessage(text.slice(0, input.maxLength), { fromCall: true });
   },
-  onSpeak(active, button) {
+  onSilence: resumeListening,
+  onSpeak(active, button, replyEmotion) {
+    spokenEmotion = active ? replyEmotion : null;
     if (button) {
       button.setAttribute('aria-pressed', String(active));
       button.lastElementChild.textContent = active ? 'Parar' : 'Ouvir';
@@ -128,17 +146,20 @@ const voice = makeVoice({
     }
     if (!pending && !listening) activity = active ? 'speaking' : 'idle';
     renderAvatar();
+    if (!active) resumeListening();
   },
-  onError: (text) => setNotice(text, true),
+  onError(text) {
+    endCall();
+    setNotice(text, true);
+  },
 });
 
-if (!voice.canListen) mic.title = 'Ditado indisponível neste navegador';
 if (!voice.canSpeak) {
   autoSpeak.disabled = true;
   byId('voice-label').title = 'Leitura em voz alta indisponível neste navegador';
 }
 
-function appendMessage(role, text, allowAudio = true) {
+function appendMessage(role, text, replyEmotion = null) {
   const row = document.createElement('div');
   row.className = 'message-row ' + role;
   if (role === 'assistant') {
@@ -162,17 +183,18 @@ function appendMessage(role, text, allowAudio = true) {
   chat.append(row);
 
   let audioButton;
-  if (role === 'assistant' && allowAudio && voice.canSpeak) {
+  if (role === 'assistant' && replyEmotion && voice.canSpeak) {
     audioButton = document.createElement('button');
     audioButton.type = 'button';
     audioButton.className = 'button reply-audio';
+    audioButton.disabled = callActive;
     audioButton.setAttribute('aria-pressed', 'false');
     audioButton.append(document.createElement('span'), document.createElement('span'));
     setIcon(audioButton.firstElementChild, 'volume');
     audioButton.lastElementChild.textContent = 'Ouvir';
     audioButton.addEventListener('click', () => {
-      if (listening || pending) return;
-      voice.speak(text, audioButton);
+      if (callActive || pending) return;
+      voice.speak(text, audioButton, replyEmotion);
     });
     bubble.append(audioButton);
   }
@@ -180,10 +202,30 @@ function appendMessage(role, text, allowAudio = true) {
   return { row, audioButton };
 }
 
-function resetChat({ keepDraft = false } = {}) {
-  pending?.abort();
+function cancelPending() {
+  if (!pending) return;
+  const { controller, row } = pending;
   pending = null;
+  controller.abort();
+  row.remove();
+}
+
+function endCall() {
+  if (!callActive) return;
+  callActive = false;
+  clearTimeout(listenTimer);
+  if (pending?.fromCall) cancelPending();
   voice.stopListening();
+  voice.stopSpeaking();
+  activity = 'idle';
+  updateCallButton();
+  renderAvatar();
+  syncControls();
+}
+
+function resetChat({ keepDraft = false } = {}) {
+  endCall();
+  cancelPending();
   voice.stopSpeaking();
   history = [];
   emotion = 'neutral';
@@ -191,42 +233,47 @@ function resetChat({ keepDraft = false } = {}) {
   if (!keepDraft) input.value = '';
   chat.replaceChildren();
   appendMessage('assistant', connection
-    ? 'Oi, eu sou Boti. Pode escrever ou usar o microfone para me contar o que está pensando.'
-    : 'Oi, eu sou Boti. Experimente uma sugestão ou escreva uma mensagem. Para conversar com a IA, conecte sua chave de API.', false);
+    ? 'Oi, eu sou o Boti! Me mande uma mensagem ou inicie uma chamada para a gente conversar.'
+    : 'Oi, eu sou o Boti! Conecte sua chave de API para eu ganhar um cérebro e a gente começar a conversar.');
   setNotice();
   renderAvatar();
   syncControls();
 }
 
-async function submitMessage(text) {
-  if (!text || pending || listening) return;
+async function submitMessage(text, { fromCall = false } = {}) {
+  if (!text || pending || listening || fromCall !== callActive) return;
+  if (!connection) {
+    openSettings();
+    return;
+  }
   voice.stopSpeaking();
   setNotice();
-  const request = new AbortController();
+  const controller = new AbortController();
+  const { row } = appendMessage('user', text);
+  const request = { controller, fromCall, row };
   pending = request;
   activity = 'thinking';
-  input.value = '';
-  const { row } = appendMessage('user', text);
+  if (!fromCall) input.value = '';
   const userMessage = { role: 'user', content: text };
   renderAvatar();
   syncControls();
 
   try {
-    const reply = connection
-      ? await askProvider(connection, [...history.slice(-20), userMessage], AbortSignal.any([request.signal, AbortSignal.timeout(45000)]))
-      : demoReply(text);
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]);
+    const reply = await askProvider(connection, [...history.slice(-20), userMessage], signal);
     if (pending !== request) return;
     history.push(userMessage, { role: 'assistant', content: reply.text });
-    const { audioButton } = appendMessage('assistant', reply.text);
+    const { audioButton } = appendMessage('assistant', reply.text, reply.emotion);
     emotion = reply.emotion;
     activity = 'idle';
     pending = null;
-    if (autoSpeak.checked) voice.speak(reply.text, audioButton);
+    if (fromCall || autoSpeak.checked) voice.speak(reply.text, fromCall ? null : audioButton, reply.emotion);
   } catch (error) {
     if (pending !== request) return;
     pending = null;
     row.remove();
-    if (!input.value.trim()) input.value = text;
+    if (fromCall) endCall();
+    else if (!input.value.trim()) input.value = text;
     activity = 'error';
     setNotice(error.message, true);
   } finally {
@@ -237,12 +284,18 @@ async function submitMessage(text) {
 
 function updateConnection() {
   const status = byId('provider-status');
-  status.textContent = connection ? providers[connection.provider].name : 'Modo demo';
+  status.textContent = connection ? providers[connection.provider].name : 'Aguardando chave';
   status.classList.toggle('is-connected', Boolean(connection));
   byId('connect-label').textContent = connection ? 'Configurar API' : 'Conectar API';
+  syncControls();
 }
 
-byId('open-settings').addEventListener('click', () => {
+function openSettings() {
+  endCall();
+  byId('settings-title').textContent = connection ? 'Configurar API' : 'Conecte meu cérebro';
+  settingsDescription.textContent = connection
+    ? 'Escolha o modelo ou troque a chave que uso para conversar.'
+    : connectionMessage;
   const provider = connection?.provider ?? 'openai';
   providerInput.value = provider;
   modelInput.value = connection?.model ?? providers[provider].model;
@@ -250,7 +303,9 @@ byId('open-settings').addEventListener('click', () => {
   keyInput.placeholder = connection ? 'Deixe em branco para manter a chave' : 'Cole sua chave aqui';
   disconnect.hidden = !connection;
   settings.showModal();
-});
+}
+
+byId('open-settings').addEventListener('click', openSettings);
 
 providerInput.addEventListener('change', () => {
   const sameProvider = providerInput.value === connection?.provider;
@@ -290,7 +345,13 @@ disconnect.addEventListener('click', () => {
 });
 
 byId('close-settings').addEventListener('click', () => settings.close());
-settings.addEventListener('close', () => { keyInput.value = ''; });
+settings.addEventListener('close', () => {
+  keyInput.value = '';
+  if (readingConnectionMessage) {
+    readingConnectionMessage = false;
+    voice.stopSpeaking();
+  }
+});
 settings.addEventListener('cancel', () => { keyInput.value = ''; });
 window.addEventListener('pagehide', () => {
   connection = null;
@@ -318,14 +379,29 @@ for (const button of suggestions.querySelectorAll('[data-prompt]')) {
   });
 }
 clearChat.addEventListener('click', () => { resetChat(); input.focus(); });
-mic.addEventListener('click', voice.toggleListening);
-autoSpeak.addEventListener('change', () => { if (!autoSpeak.checked) voice.stopSpeaking(); });
+callButton.addEventListener('click', () => {
+  if (callActive) {
+    endCall();
+    return;
+  }
+  if (!connection) {
+    openSettings();
+    readingConnectionMessage = true;
+    voice.speak(connectionMessage, null, 'neutral');
+    return;
+  }
+  if (!voice.canListen || !voice.canSpeak) {
+    setNotice('As chamadas precisam de reconhecimento de fala e uma voz instalada. Tente no Chrome ou converse por texto.', true);
+    return;
+  }
+  voice.stopSpeaking();
+  setNotice();
+  callActive = true;
+  updateCallButton();
+  syncControls();
+  voice.startListening();
+});
+autoSpeak.addEventListener('change', () => { if (!autoSpeak.checked && !callActive) voice.stopSpeaking(); });
 texture.addEventListener('change', () => avatar.update({ material: texture.value }));
-for (const button of emotionButtons) {
-  button.addEventListener('click', () => {
-    emotion = button.dataset.emotion;
-    renderAvatar();
-  });
-}
 
 resetChat();

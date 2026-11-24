@@ -8,21 +8,9 @@ pessoa. Prefira português do Brasil quando não houver indicação. Comece sua
 resposta com uma linha própria contendo apenas uma destas expressões:
 [neutral], [happy], [curious], [surprised] ou [empathetic].
 Na linha seguinte escreva a resposta em texto simples, pronta para leitura em voz alta.
-Escolha uma expressão adequada ao assunto. Use [neutral] quando não tiver certeza.`;
-
-const demoReplies = [
-  { match: /espaço|lua|planeta|curiosidade/i, emotion: 'curious', text: 'A Lua se afasta da Terra cerca de quatro centímetros por ano. Astrônomos medem essa distância disparando pulsos de laser contra refletores que astronautas deixaram por lá.' },
-  { match: /piada|riso|engraçad/i, emotion: 'happy', text: 'Por que o livro de matemática estava triste? Porque tinha muitos problemas.' },
-  { match: /triste|cansad|difícil|desanim/i, emotion: 'empathetic', text: 'Às vezes, só ter um espaço para falar já ajuda. Quer me contar o que aconteceu? No modo demo, minhas respostas são prontas.' },
-  { match: /surpres|incrível/i, emotion: 'surprised', text: 'Você sabia que polvos têm três corações? Dois bombeiam sangue para as brânquias e o terceiro para o resto do corpo.' },
-  { match: /^(oi|olá|bom dia|boa tarde|boa noite)\b/i, emotion: 'happy', text: 'Oi! Posso te contar uma curiosidade ou uma piada no modo demo. Para conversar livremente, conecte sua chave no botão acima.' },
-];
-const fallback = { emotion: 'neutral', text: 'Você está no modo demo, com respostas prontas. Experimente pedir uma curiosidade ou conecte uma chave de API para conversar com a IA.' };
-
-export function demoReply(text) {
-  const reply = demoReplies.find(({ match }) => match.test(text));
-  return reply ? { emotion: reply.emotion, text: reply.text } : fallback;
-}
+Escolha a expressão que melhor comunica como você reage à mensagem mais recente da
+pessoa, considerando o contexto da conversa. Mantenha o tom da resposta coerente com
+essa reação. Use [neutral] quando não tiver certeza.`;
 
 export function parseReply(value) {
   const text = value?.trim() ?? '';

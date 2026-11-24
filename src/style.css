@@ -125,19 +125,13 @@ h2 { font-size: 20px; font-weight: 650; line-height: 1.2; letter-spacing: -.025e
 }
 .stage-controls {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 14px 9px;
-  padding: 17px 23px 22px;
+  justify-content: flex-end;
+  padding: 12px 23px;
   border-top: 1px solid #292d29;
 }
-fieldset { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
-legend { font-size: 13px; font-weight: 600; color: var(--muted); padding: 0; margin-bottom: 8px; }
-.expressions, .suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
+.suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { min-height: 36px; padding-inline: 10px; color: var(--muted); white-space: nowrap; }
-.chip[aria-pressed='true'] { background: #363d32; border-color: #596454; color: var(--text); }
-.texture { display: flex; gap: 6px; align-items: center; min-height: 36px; color: var(--muted); font-size: 13px; }
+.texture { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
 .texture svg, .suggestions svg { width: 14px; height: 14px; }
 select { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; }
 .texture select { min-height: 36px; font-size: 13px; }
@@ -217,7 +211,9 @@ textarea::placeholder { color: var(--faint); opacity: 1; }
 }
 .voice-toggle input { margin: 0 3px 0 0; accent-color: var(--accent); width: 16px; height: 16px; }
 .voice-toggle svg { width: 14px; height: 14px; }
-.session-note { color: var(--faint); font-size: 12px; }
+.call-button[data-active='true'] { border-color: #aa6251; color: var(--error); }
+.call-status { color: var(--accent); font-size: 13px; line-height: 1.45; }
+.call-button svg { width: 16px; height: 16px; }
 .footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding-block: 14px 18px; }
 .footer a {
   display: flex;
@@ -267,11 +263,7 @@ dialog::backdrop { background: #000b; }
   .workspace { grid-template-columns: minmax(0, 1fr); padding-top: 12px; gap: 12px; }
   .panel-header { min-height: 57px; padding-block: 8px; }
   #avatar { width: min(100%, 270px, 36svh); }
-  .stage-controls { position: relative; padding-block: 11px 14px; }
-  .stage-controls legend { margin-block: 8px 16px; }
-  .expressions { gap: 4px; }
-  .expressions .chip { padding-inline: 6px; font-size: 12px; }
-  .texture { position: absolute; top: 8px; right: 16px; }
+  .texture select { min-height: 42px; }
   .chat { height: max(400px, 51svh); }
   .chip, .button { min-height: 42px; }
   .compose-actions .button { width: 42px; }
@@ -280,6 +272,5 @@ dialog::backdrop { background: #000b; }
 }
 
 @media (max-width: 395px) {
-  .session-note { display: none; }
   .header-inner > .button { padding-inline: 10px; }
 }
