@@ -1,6 +1,10 @@
+import { generateSpeech } from './providers.js';
+
 const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
 const synth = window.speechSynthesis;
 const Utterance = window.SpeechSynthesisUtterance;
+const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
+const hasBrowserVoice = Boolean(synth && Utterance);
 
 const recognitionErrors = {
   'not-allowed': 'Permita o acesso ao microfone no navegador para iniciar a chamada.',
@@ -10,54 +14,124 @@ const recognitionErrors = {
 };
 
 const delivery = {
-  neutral: { pitch: 1.32, rate: 1.03 },
-  happy: { pitch: 1.48, rate: 1.08 },
-  curious: { pitch: 1.38, rate: 1.01 },
-  surprised: { pitch: 1.52, rate: 1.08 },
-  empathetic: { pitch: 1.18, rate: 0.94 },
+  neutral: { pitch: 1.04, rate: 0.97, style: 'Use uma voz próxima, calorosa e tranquila, com um sorriso discreto.' },
+  happy: { pitch: 1.09, rate: 1.03, style: 'Deixe transparecer alegria espontânea, com energia leve e variação de melodia.' },
+  curious: { pitch: 1.06, rate: 0.97, style: 'Fale com curiosidade genuína, fazendo breves pausas para destacar as descobertas.' },
+  surprised: { pitch: 1.1, rate: 1.02, style: 'Deixe a surpresa aparecer no começo, depois volte ao ritmo natural.' },
+  empathetic: { pitch: 1.01, rate: 0.93, style: 'Use um tom acolhedor e suave, com pausas que deixem a pessoa respirar.' },
 };
 
-export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError }) {
+export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError, onFallback }) {
   let recognition = null;
   let active = null;
+  let audioContext = null;
+
+  function canSpeak(key) {
+    return hasBrowserVoice || Boolean(key && AudioContextClass);
+  }
+
+  function preparePlayback(key) {
+    if (!key || !AudioContextClass) return;
+    try {
+      audioContext ??= new AudioContextClass();
+      if (audioContext.state !== 'running') void audioContext.resume().catch(() => {});
+    } catch {
+      // The browser synthesizer can still speak if Web Audio is unavailable.
+    }
+  }
+
+  function finish(playback, error) {
+    if (active !== playback) return;
+    active = null;
+    if (error) onError(error);
+    onSpeak(false, playback.button);
+  }
 
   function stopSpeaking() {
     if (!active) return;
-    const { button } = active;
+    const playback = active;
     active = null;
-    synth.cancel();
-    onSpeak(false, button);
+    playback.controller.abort();
+    playback.stop?.();
+    onSpeak(false, playback.button);
   }
 
-  function speak(text, button, emotion) {
-    if (!synth || !Utterance) return;
-    const wasPlaying = active?.button === button && active;
-    stopSpeaking();
-    if (wasPlaying) return;
+  function speakWithBrowser(playback, text, emotion, { pitch, rate }) {
+    if (!hasBrowserVoice) {
+      finish(playback, 'Não foi possível reproduzir a voz. Confira o acesso à API de áudio da OpenAI.');
+      return;
+    }
 
     const utterance = new Utterance(text);
     utterance.lang = 'pt-BR';
-    const { pitch, rate } = delivery[emotion] ?? delivery.neutral;
     utterance.pitch = pitch;
     utterance.rate = rate;
 
     const voices = synth.getVoices();
     const brazilian = voices.filter((voice) => voice.lang.toLowerCase() === 'pt-br');
-    utterance.voice = brazilian.find((voice) => voice.localService)
+    utterance.voice = brazilian.find((voice) => /natural|neural|premium|enhanced|aprimorad/i.test(voice.name))
+      ?? brazilian.find((voice) => voice.default)
       ?? brazilian[0]
       ?? voices.find((voice) => voice.lang.toLowerCase().startsWith('pt'))
       ?? null;
-    active = { utterance, button };
-    function finish(event) {
-      if (active?.utterance !== utterance) return;
-      active = null;
-      if (event.type === 'error') onError('O navegador não conseguiu falar. Confira se há uma voz instalada no dispositivo.');
-      onSpeak(false, button);
-    }
-    utterance.onend = finish;
-    utterance.onerror = finish;
-    onSpeak(true, button, emotion);
+
+    playback.stop = () => synth.cancel();
+    utterance.onend = () => finish(playback);
+    utterance.onerror = () => finish(playback, 'O navegador não conseguiu falar. Confira se há uma voz instalada no dispositivo.');
+    onSpeak(true, playback.button, emotion, 'speaking');
     synth.speak(utterance);
+  }
+
+  async function speakWithOpenAI(playback, text, emotion, preset, key) {
+    onSpeak(true, playback.button, emotion, 'preparing');
+    try {
+      const signal = AbortSignal.any([playback.controller.signal, AbortSignal.timeout(20000)]);
+      if (!audioContext) throw new Error('Web Audio indisponível.');
+      if (audioContext.state !== 'running') {
+        await Promise.race([
+          audioContext.resume(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Áudio suspenso.')), 1500)),
+        ]);
+      }
+      if (active !== playback) return;
+
+      const bytes = await generateSpeech(text, preset.style, key, signal);
+      if (active !== playback) return;
+      const buffer = await audioContext.decodeAudioData(bytes);
+      if (active !== playback) return;
+      if (audioContext.state !== 'running') throw new Error('Reprodução de áudio suspensa.');
+
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext.destination);
+      source.onended = () => {
+        source.disconnect();
+        finish(playback);
+      };
+      source.start();
+      playback.stop = () => source.stop();
+      onSpeak(true, playback.button, emotion, 'speaking');
+    } catch {
+      if (active !== playback) return;
+      if (hasBrowserVoice) onFallback();
+      speakWithBrowser(playback, text, emotion, preset);
+    }
+  }
+
+  function speak(text, button, emotion, key) {
+    if (!canSpeak(key)) return;
+    const wasPlaying = active && active.button === button;
+    stopSpeaking();
+    if (wasPlaying) return;
+
+    const playback = { button, controller: new AbortController() };
+    const preset = delivery[emotion] ?? delivery.neutral;
+    active = playback;
+    if (key && AudioContextClass) {
+      void speakWithOpenAI(playback, text, emotion, preset, key);
+    } else {
+      speakWithBrowser(playback, text, emotion, preset);
+    }
   }
 
   function stopListening() {
@@ -106,7 +180,9 @@ export function makeVoice({ onListen, onTranscript, onSilence, onSpeak, onError 
 
   return {
     canListen: Boolean(Recognition),
-    canSpeak: Boolean(synth && Utterance),
+    canSpeak,
+    supportsGeneratedVoice: Boolean(AudioContextClass),
+    preparePlayback,
     startListening,
     stopListening,
     speak,

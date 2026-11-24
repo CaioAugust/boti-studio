@@ -26,6 +26,10 @@ const connectionMessage = settingsDescription.textContent;
 const providerInput = byId('provider');
 const modelInput = byId('model');
 const keyInput = byId('api-key');
+const voiceKeyInput = byId('voice-key');
+const voiceKeyField = byId('voice-key-field');
+const removeVoiceKey = byId('remove-voice-key');
+const voiceDisclosure = byId('voice-disclosure');
 const disconnect = byId('disconnect');
 const texture = byId('texture');
 
@@ -63,6 +67,7 @@ const activities = {
   idle: { label: 'À espera' },
   listening: { label: 'Ouvindo', state: 'waiting' },
   thinking: { label: 'Pensando', state: 'thinking' },
+  preparing: { label: 'Preparando a voz' },
   speaking: { label: 'Falando' },
   error: { label: 'Falha na resposta', state: 'blocked' },
 };
@@ -72,11 +77,16 @@ let spokenEmotion = null;
 let readingConnectionMessage = false;
 let activity = 'idle';
 let connection = null;
+let keepVoiceKey = false;
 let pending = null;
 let listening = false;
 let callActive = false;
 let listenTimer;
 let history = [];
+
+function getVoiceKey() {
+  return connection?.provider === 'openai' ? connection.key : connection?.voiceKey;
+}
 
 function renderAvatar() {
   const current = activities[activity];
@@ -137,27 +147,25 @@ const voice = makeVoice({
     void submitMessage(text.slice(0, input.maxLength), { fromCall: true });
   },
   onSilence: resumeListening,
-  onSpeak(active, button, replyEmotion) {
+  onSpeak(active, button, replyEmotion, phase) {
     spokenEmotion = active ? replyEmotion : null;
     if (button) {
       button.setAttribute('aria-pressed', String(active));
       button.lastElementChild.textContent = active ? 'Parar' : 'Ouvir';
       setIcon(button.firstElementChild, active ? 'stop' : 'volume');
     }
-    if (!pending && !listening) activity = active ? 'speaking' : 'idle';
+    if (!pending && !listening) activity = active ? phase : 'idle';
     renderAvatar();
     if (!active) resumeListening();
+  },
+  onFallback() {
+    setNotice('A voz da OpenAI ficou indisponível. Esta resposta usa a voz do navegador.');
   },
   onError(text) {
     endCall();
     setNotice(text, true);
   },
 });
-
-if (!voice.canSpeak) {
-  autoSpeak.disabled = true;
-  byId('voice-label').title = 'Leitura em voz alta indisponível neste navegador';
-}
 
 function appendMessage(role, text, replyEmotion = null) {
   const row = document.createElement('div');
@@ -183,7 +191,7 @@ function appendMessage(role, text, replyEmotion = null) {
   chat.append(row);
 
   let audioButton;
-  if (role === 'assistant' && replyEmotion && voice.canSpeak) {
+  if (role === 'assistant' && replyEmotion && voice.canSpeak(getVoiceKey())) {
     audioButton = document.createElement('button');
     audioButton.type = 'button';
     audioButton.className = 'button reply-audio';
@@ -194,7 +202,10 @@ function appendMessage(role, text, replyEmotion = null) {
     audioButton.lastElementChild.textContent = 'Ouvir';
     audioButton.addEventListener('click', () => {
       if (callActive || pending) return;
-      voice.speak(text, audioButton, replyEmotion);
+      const key = getVoiceKey();
+      setNotice();
+      voice.preparePlayback(key);
+      voice.speak(text, audioButton, replyEmotion, key);
     });
     bubble.append(audioButton);
   }
@@ -246,6 +257,8 @@ async function submitMessage(text, { fromCall = false } = {}) {
     openSettings();
     return;
   }
+  const voiceKey = getVoiceKey();
+  if (!fromCall && autoSpeak.checked) voice.preparePlayback(voiceKey);
   voice.stopSpeaking();
   setNotice();
   const controller = new AbortController();
@@ -260,14 +273,16 @@ async function submitMessage(text, { fromCall = false } = {}) {
 
   try {
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]);
-    const reply = await askProvider(connection, [...history.slice(-20), userMessage], signal);
+    const reply = await askProvider(connection, [...history.slice(-20), userMessage], signal, { forSpeech: fromCall });
     if (pending !== request) return;
     history.push(userMessage, { role: 'assistant', content: reply.text });
     const { audioButton } = appendMessage('assistant', reply.text, reply.emotion);
     emotion = reply.emotion;
     activity = 'idle';
     pending = null;
-    if (fromCall || autoSpeak.checked) voice.speak(reply.text, fromCall ? null : audioButton, reply.emotion);
+    if (fromCall || autoSpeak.checked) {
+      voice.speak(reply.text, fromCall ? null : audioButton, reply.emotion, voiceKey);
+    }
   } catch (error) {
     if (pending !== request) return;
     pending = null;
@@ -287,7 +302,19 @@ function updateConnection() {
   status.textContent = connection ? providers[connection.provider].name : 'Aguardando chave';
   status.classList.toggle('is-connected', Boolean(connection));
   byId('connect-label').textContent = connection ? 'Configurar API' : 'Conectar API';
+  const voiceKey = getVoiceKey();
+  autoSpeak.disabled = !voice.canSpeak(voiceKey);
+  byId('voice-label').title = autoSpeak.disabled ? 'Leitura em voz alta indisponível neste navegador' : '';
+  voiceDisclosure.hidden = !voiceKey || !voice.supportsGeneratedVoice;
   syncControls();
+}
+
+function syncVoiceKeyFields() {
+  const showVoiceKey = providerInput.value === 'anthropic';
+  voiceKeyField.hidden = !showVoiceKey;
+  byId('openai-voice-help').hidden = showVoiceKey;
+  voiceKeyInput.placeholder = keepVoiceKey ? 'Em branco mantém a chave' : 'Cole uma chave OpenAI';
+  removeVoiceKey.hidden = !showVoiceKey || !keepVoiceKey;
 }
 
 function openSettings() {
@@ -300,8 +327,10 @@ function openSettings() {
   providerInput.value = provider;
   modelInput.value = connection?.model ?? providers[provider].model;
   keyInput.required = !connection;
-  keyInput.placeholder = connection ? 'Deixe em branco para manter a chave' : 'Cole sua chave aqui';
+  keyInput.placeholder = connection ? 'Em branco mantém a chave' : 'Cole sua chave aqui';
   disconnect.hidden = !connection;
+  keepVoiceKey = Boolean(connection?.voiceKey);
+  syncVoiceKeyFields();
   settings.showModal();
 }
 
@@ -312,7 +341,15 @@ providerInput.addEventListener('change', () => {
   modelInput.value = sameProvider ? connection.model : providers[providerInput.value].model;
   keyInput.value = '';
   keyInput.required = !sameProvider;
-  keyInput.placeholder = sameProvider ? 'Deixe em branco para manter a chave' : 'Cole sua chave aqui';
+  keyInput.placeholder = sameProvider ? 'Em branco mantém a chave' : 'Cole sua chave aqui';
+  syncVoiceKeyFields();
+});
+
+removeVoiceKey.addEventListener('click', () => {
+  keepVoiceKey = false;
+  voiceKeyInput.value = '';
+  syncVoiceKeyFields();
+  voiceKeyInput.focus();
 });
 
 byId('settings-form').addEventListener('submit', (event) => {
@@ -325,8 +362,12 @@ byId('settings-form').addEventListener('submit', (event) => {
     (model ? keyInput : modelInput).focus();
     return;
   }
+  const voiceKey = provider === 'anthropic'
+    ? voiceKeyInput.value.trim() || (keepVoiceKey ? connection?.voiceKey : '')
+    : '';
   const connectionChanged = !sameProvider || key !== connection.key;
-  connection = { provider, model, key };
+  if (voiceKey !== connection?.voiceKey) voice.stopSpeaking();
+  connection = { provider, model, key, voiceKey };
   updateConnection();
   if (connectionChanged || pending) resetChat({ keepDraft: true });
   else {
@@ -347,15 +388,16 @@ disconnect.addEventListener('click', () => {
 byId('close-settings').addEventListener('click', () => settings.close());
 settings.addEventListener('close', () => {
   keyInput.value = '';
+  voiceKeyInput.value = '';
   if (readingConnectionMessage) {
     readingConnectionMessage = false;
     voice.stopSpeaking();
   }
 });
-settings.addEventListener('cancel', () => { keyInput.value = ''; });
 window.addEventListener('pagehide', () => {
   connection = null;
   keyInput.value = '';
+  voiceKeyInput.value = '';
   updateConnection();
   resetChat();
 });
@@ -390,10 +432,12 @@ callButton.addEventListener('click', () => {
     voice.speak(connectionMessage, null, 'neutral');
     return;
   }
-  if (!voice.canListen || !voice.canSpeak) {
-    setNotice('As chamadas precisam de reconhecimento de fala e uma voz instalada. Tente no Chrome ou converse por texto.', true);
+  const voiceKey = getVoiceKey();
+  if (!voice.canListen || !voice.canSpeak(voiceKey)) {
+    setNotice('As chamadas precisam de reconhecimento de fala e reprodução de áudio. Tente no Chrome ou converse por texto.', true);
     return;
   }
+  voice.preparePlayback(voiceKey);
   voice.stopSpeaking();
   setNotice();
   callActive = true;
@@ -401,7 +445,11 @@ callButton.addEventListener('click', () => {
   syncControls();
   voice.startListening();
 });
-autoSpeak.addEventListener('change', () => { if (!autoSpeak.checked && !callActive) voice.stopSpeaking(); });
+autoSpeak.addEventListener('change', () => {
+  if (autoSpeak.checked) voice.preparePlayback(getVoiceKey());
+  else if (!callActive) voice.stopSpeaking();
+});
 texture.addEventListener('change', () => avatar.update({ material: texture.value }));
 
+updateConnection();
 resetChat();
