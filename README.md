@@ -7,7 +7,7 @@ Converse por texto e voz com um avatar 3D. [Abra a demonstração no GitHub Page
 - **API.** Escolha OpenAI ou Anthropic (Claude), informe sua chave e ajuste o identificador do modelo, se necessário. A chave é necessária para conversar por texto ou voz. A expressão do avatar acompanha o conteúdo da conversa.
 - **Chamada.** Clique em **Iniciar chamada**, permita o acesso ao microfone e fale normalmente. O Boti responde em voz alta e volta a escutar. Clique em **Encerrar chamada** para desligar. No chat por texto, use **Ouvir** ou marque **Ler respostas em voz alta**.
 - **Voz Faber.** A mesma voz em português brasileiro do Co Host roda no próprio navegador pelo Piper e ONNX Runtime. O modelo é carregado no primeiro uso de voz. Funciona com a chave de chat que você já usa, tanto na OpenAI quanto no Claude.
-- **Avatar.** O avatar reage automaticamente e mantém a expressão da resposta durante a leitura em voz alta. Você pode alternar entre pelúcia e superfície lisa. O renderizador usa WebGL2 para a pelúcia e exibe a superfície lisa em dispositivos sem suporte.
+- **Avatar.** O avatar tem 27 reações expressivas além da neutra. Ele escolhe a reação a partir da conversa, muda o olhar e a postura e mantém a expressão durante a leitura. Se o dispositivo estiver configurado para reduzir movimento, o Boti preserva a pose e o rótulo da reação. Você pode alternar entre pelúcia e superfície lisa. O renderizador usa WebGL2 para a pelúcia e exibe a superfície lisa em dispositivos sem suporte.
 
 ## Rodar localmente
 

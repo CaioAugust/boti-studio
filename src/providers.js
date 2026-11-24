@@ -1,3 +1,5 @@
+import { reactionChoices, reactions } from './reactions.js';
+
 export const providers = {
   openai: { name: 'OpenAI', model: 'gpt-4o-mini', url: 'https://api.openai.com/v1/chat/completions' },
   anthropic: { name: 'Claude', model: 'claude-haiku-4-5-20251001', url: 'https://api.anthropic.com/v1/messages' },
@@ -5,19 +7,23 @@ export const providers = {
 
 const instruction = `Você é Boti, um assistente amigável. Responda com clareza no idioma da
 pessoa. Prefira português do Brasil quando não houver indicação. Comece sua
-resposta com uma linha própria contendo apenas uma destas expressões:
-[neutral], [happy], [curious], [surprised] ou [empathetic].
-Na linha seguinte escreva a resposta em texto simples, pronta para leitura em voz alta.
-Escolha a expressão que melhor comunica como você reage à mensagem mais recente da
-pessoa, considerando o contexto da conversa. Mantenha o tom da resposta coerente com
-essa reação. Use [neutral] quando não tiver certeza.`;
+resposta com uma linha própria contendo somente o código de uma reação desta lista.
+Escolha pela mensagem mais recente, pelo contexto e pela forma como Boti responde.
+
+${reactionChoices}
+
+Na linha seguinte, escreva a resposta em texto simples, pronta para leitura em voz alta.
+Alinhe o tom do texto à reação. Use [neutral] para conteúdo neutro ou quando não tiver
+certeza. Reserve as reações intensas para situações que realmente pedem intensidade.`;
 
 export function parseReply(value) {
   const text = value?.trim() ?? '';
-  const expression = text.match(/^\[(neutral|happy|curious|surprised|empathetic)\][ \t]*\r?\n/i);
-  const reply = expression ? text.slice(expression[0].length).trim() : text;
+  const marker = text.match(/^\[([a-z][a-z_]*)\](?:\s+|$)/i);
+  const code = marker?.[1].toLowerCase();
+  const recognized = Object.hasOwn(reactions, code);
+  const reply = recognized ? text.slice(marker[0].length).trim() : text;
   if (!reply) throw new Error('O provedor devolveu uma resposta vazia. Tente enviar a mensagem novamente.');
-  return { text: reply, emotion: expression?.[1].toLowerCase() ?? 'neutral' };
+  return { text: reply, emotion: recognized ? code : 'neutral' };
 }
 
 function providerError(status) {

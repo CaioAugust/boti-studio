@@ -5,6 +5,7 @@ import { mountAvatar } from 'open-bot-avatar/dom';
 import { setIcon } from './icons.js';
 import { askProvider, providers } from './providers.js';
 import { makeVoice } from './voice.js';
+import { neutralPose, playReaction, reactions } from './reactions.js';
 import connectionAudio from './faber-connection.wav?url';
 
 const byId = (id) => document.getElementById(id);
@@ -46,7 +47,7 @@ if (!definition.ok) throw new Error('Definição inválida do avatar: ' + defini
 
 const avatar = mountAvatar(avatarHost, {
   definition: definition.value,
-  color: '#a6ce44',
+  color: neutralPose.color,
   eyeColor: '#1e2916',
   material: texture.value,
   depth: 11,
@@ -54,13 +55,6 @@ const avatar = mountAvatar(avatarHost, {
   label: 'Boti, avatar 3D',
 });
 
-const expressions = {
-  neutral: { label: 'expressão neutra', state: 'idle', mood: 'neutral', lookAt: null, view: { yaw: 0, pitch: 0 } },
-  happy: { label: 'expressão alegre', state: 'done', mood: 'happy', lookAt: null, view: { yaw: 0, pitch: 0 } },
-  curious: { label: 'expressão curiosa', state: 'thinking', mood: 'neutral', lookAt: { x: 0.7, y: -0.45 }, view: { yaw: 0.15, pitch: 0 } },
-  surprised: { label: 'expressão surpresa', state: 'blocked', mood: 'neutral', lookAt: { x: 0, y: -0.35 }, view: { yaw: 0, pitch: -0.15 } },
-  empathetic: { label: 'expressão solidária', state: 'waiting', mood: 'neutral', lookAt: { x: -0.15, y: 0.35 }, view: { yaw: -0.06, pitch: 0.1 } },
-};
 const activities = {
   idle: { label: 'À espera' },
   listening: { label: 'Ouvindo', state: 'waiting' },
@@ -70,6 +64,7 @@ const activities = {
   error: { label: 'Falha na resposta', state: 'blocked' },
 };
 
+let reactionAnimation = null;
 let emotion = 'neutral';
 let spokenEmotion = null;
 let readingConnectionMessage = false;
@@ -81,17 +76,31 @@ let callActive = false;
 let listenTimer;
 let history = [];
 
+function showReaction(id) {
+  reactionAnimation?.cancel();
+  reactionAnimation = playReaction(avatarHost, id);
+}
+
+window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', (event) => {
+  if (event.matches) reactionAnimation?.cancel();
+});
+
 function renderAvatar() {
   const current = activities[activity];
   const displayedEmotion = current.state ? 'neutral' : spokenEmotion ?? emotion;
-  const { label, ...pose } = expressions[displayedEmotion];
+  const { label, cue, gesture, ...pose } = reactions[displayedEmotion];
+  const hasReaction = displayedEmotion !== 'neutral';
+  if (current.state) reactionAnimation?.cancel();
+
   avatar.update({
+    ...neutralPose,
     ...pose,
-    state: current.state ?? (activity === 'speaking' && displayedEmotion === 'neutral' ? 'working' : pose.state),
-    label: 'Boti, avatar 3D, ' + (current.state ? current.label.toLowerCase() : label),
+    state: current.state ?? pose.state ?? (activity === 'speaking' && !hasReaction ? 'working' : 'idle'),
+    label: 'Boti, avatar 3D, ' + (hasReaction ? label.toLowerCase() : current.label.toLowerCase()),
   });
   stateIndicator.dataset.activity = activity;
-  stateIndicator.lastElementChild.textContent = current.label;
+  const stateLabel = !hasReaction ? current.label : activity === 'idle' ? label : `${current.label} · ${label.toLowerCase()}`;
+  stateIndicator.lastElementChild.textContent = stateLabel;
   callStatus.hidden = !callActive;
   if (callActive) {
     const status = activity === 'idle' ? 'Chamada em andamento' : 'Boti · ' + current.label.toLowerCase();
@@ -149,7 +158,12 @@ const voice = makeVoice({
     }
     if (!pending && !listening) activity = active ? phase : 'idle';
     renderAvatar();
-    if (!active) resumeListening();
+    if (!active) {
+      reactionAnimation?.cancel();
+      resumeListening();
+    } else if (phase === 'speaking') {
+      showReaction(replyEmotion);
+    }
   },
   onError(text) {
     endCall();
@@ -218,6 +232,7 @@ function endCall() {
   voice.stopListening();
   voice.stopSpeaking();
   activity = 'idle';
+  reactionAnimation?.cancel();
   updateCallButton();
   renderAvatar();
   syncControls();
@@ -228,6 +243,7 @@ function resetChat({ keepDraft = false } = {}) {
   cancelPending();
   voice.stopSpeaking();
   history = [];
+  reactionAnimation?.cancel();
   emotion = 'neutral';
   activity = 'idle';
   if (!keepDraft) input.value = '';
@@ -270,6 +286,8 @@ async function submitMessage(text, { fromCall = false } = {}) {
     pending = null;
     if (fromCall || autoSpeak.checked) {
       voice.speak(reply.text, fromCall ? null : audioButton, reply.emotion);
+    } else {
+      showReaction(reply.emotion);
     }
   } catch (error) {
     if (pending !== request) return;
